@@ -8,18 +8,27 @@ Persistence layer.
    Uses SQLAlchemy + pg8000.
 
 If neither is configured, agents fall back to in-memory notes (no sprint table).
+
+Public API (used by sprint_api/main.py and mcp_stubs):
+  is_configured(), database_backend()
+  init_db_startup(), shutdown_db()
+  insert_sprint()
+  write_note_db(), get_notes_db(), list_sprint_ids()
+  save_plan_session(), get_plan_session()
 """
 
 from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import json
 import logging
 import os
+import uuid
 from datetime import datetime, timezone
-from typing import Any, Literal
+from typing import Any, Literal, Optional
 
-from sqlalchemy import DateTime, String, Text, create_engine, func, select
+from sqlalchemy import DateTime, Float, Index, Integer, String, Text, create_engine, func, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
 logger = logging.getLogger(__name__)
@@ -60,6 +69,55 @@ class SprintNoteRow(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     sprint_id: Mapped[str] = mapped_column(String(128), index=True)
     content: Mapped[str] = mapped_column(Text())
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+
+
+class PlanSessionRow(Base):
+    __tablename__ = "plan_sessions"
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    user_input: Mapped[str] = mapped_column(Text())
+    sprint_id: Mapped[str] = mapped_column(String(128))
+    sprint_name: Mapped[str] = mapped_column(String(512))
+    team: Mapped[str] = mapped_column(String(256))
+    summary_text: Mapped[str] = mapped_column(Text())
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+
+
+class PlanTaskRow(Base):
+    __tablename__ = "plan_tasks"
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    session_id: Mapped[str] = mapped_column(String(128), index=True)
+    title: Mapped[str] = mapped_column(Text())
+    description: Mapped[str] = mapped_column(Text(), default="")
+    issue_type: Mapped[str] = mapped_column(String(64), default="feature")
+    priority: Mapped[str] = mapped_column(String(32), default="medium")
+    story_points: Mapped[int] = mapped_column(Integer(), default=3)
+    estimated_hours: Mapped[float] = mapped_column(Float(), default=4.0)
+    due: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+
+
+class PlanEventRow(Base):
+    __tablename__ = "plan_events"
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    session_id: Mapped[str] = mapped_column(String(128), index=True)
+    task_id: Mapped[str] = mapped_column(String(128), default="")
+    task_title: Mapped[str] = mapped_column(Text())
+    start_time: Mapped[str] = mapped_column(String(64))
+    end_time: Mapped[str] = mapped_column(String(64))
+    notes: Mapped[str] = mapped_column(Text(), default="")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -237,3 +295,130 @@ def get_notes_db(sprint_id: str) -> list[dict[str, Any]]:
         }
         for r in rows
     ]
+
+
+def save_plan_session(
+    session_id: str,
+    user_input: str,
+    sprint_id: str,
+    sprint_name: str,
+    team: str,
+    summary_text: str,
+    tasks: list[dict[str, Any]],
+    events: list[dict[str, Any]],
+) -> None:
+    """Persist a full plan result — mirrors omnexis-repo save_session."""
+    if _alloydb_ready():
+        from sprint_mcp import alloydb_async as adb
+
+        run_async(
+            adb.save_plan_session(
+                session_id, user_input, sprint_id, sprint_name,
+                team, summary_text, tasks, events,
+            )
+        )
+        return
+
+    eng = _get_engine()
+    if eng is None or _SessionLocal is None:
+        logger.warning("save_plan_session: no DB configured — skipping persistence")
+        return
+
+    with _SessionLocal() as db_session:
+        db_session.add(PlanSessionRow(
+            id=session_id,
+            user_input=user_input,
+            sprint_id=sprint_id,
+            sprint_name=sprint_name,
+            team=team,
+            summary_text=summary_text,
+        ))
+        for task in tasks:
+            db_session.add(PlanTaskRow(
+                id=task.get("id", str(uuid.uuid4())),
+                session_id=session_id,
+                title=task.get("title", ""),
+                description=task.get("description", ""),
+                issue_type=task.get("issue_type", "feature"),
+                priority=task.get("priority", "medium"),
+                story_points=int(task.get("story_points", 3)),
+                estimated_hours=float(task.get("estimated_hours", 4.0)),
+                due=task.get("due"),
+            ))
+        for event in events:
+            db_session.add(PlanEventRow(
+                id=event.get("id", str(uuid.uuid4())),
+                session_id=session_id,
+                task_id=event.get("task_id", ""),
+                task_title=event.get("task_title", ""),
+                start_time=event.get("start", ""),
+                end_time=event.get("end", ""),
+                notes=event.get("notes", ""),
+            ))
+        db_session.commit()
+    logger.info("save_plan_session | session=%s tasks=%d events=%d", session_id, len(tasks), len(events))
+
+
+def get_plan_session(session_id: str) -> Optional[dict[str, Any]]:
+    """Retrieve a saved plan — mirrors omnexis-repo get_session."""
+    if _alloydb_ready():
+        from sprint_mcp import alloydb_async as adb
+
+        return run_async(adb.get_plan_session(session_id))
+
+    eng = _get_engine()
+    if eng is None or _SessionLocal is None:
+        return None
+
+    with _SessionLocal() as db_session:
+        row = db_session.get(PlanSessionRow, session_id)
+        if row is None:
+            return None
+        tasks = list(
+            db_session.scalars(
+                select(PlanTaskRow)
+                .where(PlanTaskRow.session_id == session_id)
+                .order_by(PlanTaskRow.created_at.asc())
+            ).all()
+        )
+        events = list(
+            db_session.scalars(
+                select(PlanEventRow)
+                .where(PlanEventRow.session_id == session_id)
+                .order_by(PlanEventRow.created_at.asc())
+            ).all()
+        )
+
+    return {
+        "session_id": session_id,
+        "input": row.user_input,
+        "sprint_id": row.sprint_id,
+        "sprint_name": row.sprint_name,
+        "team": row.team,
+        "summary": row.summary_text,
+        "tasks": [
+            {
+                "id": t.id,
+                "title": t.title,
+                "description": t.description,
+                "issue_type": t.issue_type,
+                "priority": t.priority,
+                "story_points": t.story_points,
+                "estimated_hours": t.estimated_hours,
+                "due": t.due,
+            }
+            for t in tasks
+        ],
+        "events": [
+            {
+                "id": e.id,
+                "task_id": e.task_id,
+                "task_title": e.task_title,
+                "start": e.start_time,
+                "end": e.end_time,
+                "notes": e.notes,
+            }
+            for e in events
+        ],
+    }
+

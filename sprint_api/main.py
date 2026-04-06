@@ -38,10 +38,11 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    from sprint_mcp.db import init_db
+    from sprint_mcp.db import init_db_startup, shutdown_db
 
-    init_db()
+    await init_db_startup()
     yield
+    await shutdown_db()
 
 
 app = FastAPI(title="Engineering Sprint Planner API", version="2.0", lifespan=lifespan)
@@ -63,11 +64,11 @@ class PlanResponse(BaseModel):
 
 @app.get("/health")
 def health() -> dict:
-    from sprint_mcp.db import is_configured
+    from sprint_mcp.db import database_backend, is_configured
 
     return {
         "status": "ok",
-        "database": "postgres" if is_configured() else "off",
+        "database": database_backend() if is_configured() else "off",
     }
 
 

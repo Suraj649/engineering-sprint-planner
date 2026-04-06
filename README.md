@@ -65,7 +65,13 @@ export PYTHONPATH=.:adk_agents
 - `GET /v1/sprints/{sprint_id}/notes` — notes (DB if `DATABASE_URL`, else in-memory)  
 - MCP tools mounted at `/mcp`
 
-Set `DATABASE_URL=postgresql+pg8000://...` for Cloud SQL / AlloyDB (tables created on startup).
+**Database (choose one):**
+
+- **AlloyDB** (same approach as `omnexis-repo/backend/db.py`): set `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION`, `ALLOYDB_CLUSTER`, `ALLOYDB_INSTANCE`, `ALLOYDB_USER`, `ALLOYDB_PASSWORD`, `ALLOYDB_DATABASE`. Uses `google-cloud-alloydb-connector` + `asyncpg`. Requires Application Default Credentials with access to the cluster.
+
+- **Postgres URL:** set `DATABASE_URL=postgresql+pg8000://...` (e.g. Cloud SQL via proxy). If AlloyDB env vars are fully set, AlloyDB wins over `DATABASE_URL`.
+
+Tables `sprints` and `sprint_notes` are created on API startup.
 
 ## Wire real integrations
 

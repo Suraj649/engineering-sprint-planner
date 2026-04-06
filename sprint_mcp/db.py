@@ -1,18 +1,23 @@
 """
-Postgres persistence (Cloud SQL / AlloyDB / any PostgreSQL).
+Persistence layer.
 
-Set DATABASE_URL, e.g.:
-  postgresql+pg8000://USER:PASS@HOST:5432/DBNAME
+1) **AlloyDB** (omnexis-repo style): set `GOOGLE_CLOUD_*` + `ALLOYDB_*` env vars.
+   Uses `google.cloud.alloydb.connector.AsyncConnector` + asyncpg.
 
-Tables are created on API startup via init_db().
+2) **Generic Postgres URL**: set `DATABASE_URL` (e.g. Cloud SQL via proxy).
+   Uses SQLAlchemy + pg8000.
+
+If neither is configured, agents fall back to in-memory notes (no sprint table).
 """
 
 from __future__ import annotations
 
+import asyncio
+import concurrent.futures
 import logging
 import os
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Literal
 
 from sqlalchemy import DateTime, String, Text, create_engine, func, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
@@ -21,6 +26,16 @@ logger = logging.getLogger(__name__)
 
 _engine = None
 _SessionLocal: sessionmaker[Session] | None = None
+
+
+def run_async(coro):
+    """Run async AlloyDB code from sync ADK tools (avoids nested event loops)."""
+
+    def _runner() -> Any:
+        return asyncio.run(coro)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(_runner).result()
 
 
 class Base(DeclarativeBase):
@@ -56,8 +71,22 @@ def database_url() -> str | None:
     return url or None
 
 
+def _alloydb_ready() -> bool:
+    from sprint_mcp.alloydb_async import alloydb_configured
+
+    return alloydb_configured()
+
+
 def is_configured() -> bool:
-    return database_url() is not None
+    return bool(database_url()) or _alloydb_ready()
+
+
+def database_backend() -> Literal["off", "postgres", "alloydb"]:
+    if _alloydb_ready():
+        return "alloydb"
+    if database_url():
+        return "postgres"
+    return "off"
 
 
 def _get_engine():
@@ -72,8 +101,49 @@ def _get_engine():
     return _engine
 
 
+def _init_sqlalchemy_tables() -> bool:
+    eng = _get_engine()
+    if eng is None:
+        return False
+    Base.metadata.create_all(eng)
+    logger.info("SQLAlchemy tables ensured (sprints, sprint_notes)")
+    return True
+
+
+async def init_db_startup() -> bool:
+    """FastAPI lifespan: AlloyDB async init or SQLAlchemy in thread."""
+    from sprint_mcp import alloydb_async as adb
+
+    if _alloydb_ready():
+        await adb.init_db()
+        return True
+    if database_url():
+        await asyncio.to_thread(_init_sqlalchemy_tables)
+        return True
+    logger.info("No DATABASE_URL or AlloyDB env — DB persistence off")
+    return False
+
+
+async def shutdown_db() -> None:
+    from sprint_mcp import alloydb_async as adb
+
+    global _engine, _SessionLocal
+    if _alloydb_ready():
+        await adb.close_pool()
+    if _engine is not None:
+        _engine.dispose()
+        _engine = None
+        _SessionLocal = None
+        logger.info("SQLAlchemy engine disposed")
+
+
 def init_db() -> bool:
-    """Create tables if DATABASE_URL is set. Returns True if DB is ready."""
+    """Sync entry (legacy): prefer init_db_startup from async lifespan."""
+    if _alloydb_ready():
+        from sprint_mcp import alloydb_async as adb
+
+        run_async(adb.init_db())
+        return True
     eng = _get_engine()
     if eng is None:
         logger.info("DATABASE_URL not set — skipping DB init (in-memory fallbacks)")
@@ -84,6 +154,12 @@ def init_db() -> bool:
 
 
 def insert_sprint(sprint_id: str, sprint_name: str, team: str) -> None:
+    if _alloydb_ready():
+        from sprint_mcp import alloydb_async as adb
+
+        run_async(adb.insert_sprint(sprint_id, sprint_name, team))
+        return
+
     eng = _get_engine()
     if eng is None or _SessionLocal is None:
         return
@@ -101,6 +177,11 @@ def insert_sprint(sprint_id: str, sprint_name: str, team: str) -> None:
 
 
 def write_note_db(sprint_id: str, content: str) -> dict[str, Any]:
+    if _alloydb_ready():
+        from sprint_mcp import alloydb_async as adb
+
+        return run_async(adb.write_note(sprint_id, content))
+
     eng = _get_engine()
     if eng is None or _SessionLocal is None:
         raise RuntimeError("DATABASE_URL not configured")
@@ -116,6 +197,11 @@ def write_note_db(sprint_id: str, content: str) -> dict[str, Any]:
 
 
 def list_sprint_ids() -> list[str]:
+    if _alloydb_ready():
+        from sprint_mcp import alloydb_async as adb
+
+        return run_async(adb.list_sprint_ids())
+
     eng = _get_engine()
     if eng is None or _SessionLocal is None:
         return []
@@ -126,6 +212,11 @@ def list_sprint_ids() -> list[str]:
 
 
 def get_notes_db(sprint_id: str) -> list[dict[str, Any]]:
+    if _alloydb_ready():
+        from sprint_mcp import alloydb_async as adb
+
+        return run_async(adb.get_notes(sprint_id))
+
     eng = _get_engine()
     if eng is None or _SessionLocal is None:
         raise RuntimeError("DATABASE_URL not configured")

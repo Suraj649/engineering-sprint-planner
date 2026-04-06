@@ -9,7 +9,7 @@ the pure-Python MCP layer.
   mcp_push_github    → stub (wire to GitHub Issues API when ready)
   mcp_block_calendar → sprint_mcp/mcp_connector.py stub (real after Google creds)
   mcp_write_note     → sprint_mcp/notes_store.py (Postgres if DATABASE_URL)
-  db_create_sprint   → sprint_mcp/db.py when DATABASE_URL else session-only id
+  db_create_sprint   → sprint_mcp/db.py (AlloyDB or DATABASE_URL) else session-only id
 """
 
 from __future__ import annotations

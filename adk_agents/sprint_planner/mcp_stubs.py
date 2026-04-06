@@ -8,8 +8,8 @@ the pure-Python MCP layer.
   mcp_push_tracker   → sprint_mcp/azure_clients/boards.py  (real Azure DevOps)
   mcp_push_github    → stub (wire to GitHub Issues API when ready)
   mcp_block_calendar → sprint_mcp/mcp_connector.py stub (real after Google creds)
-  mcp_write_note     → sprint_mcp/notes_store.py            (real, in-memory)
-  db_create_sprint   → session-state stub (real DB in Phase 2)
+  mcp_write_note     → sprint_mcp/notes_store.py (Postgres if DATABASE_URL)
+  db_create_sprint   → sprint_mcp/db.py when DATABASE_URL else session-only id
 """
 
 from __future__ import annotations
@@ -41,17 +41,24 @@ def _parse_count(json_str: str) -> int:
         return 0
 
 
-# ── DB sprint stub (Phase 2: replace with real AlloyDB/Postgres insert) ────────
+# ── DB sprint (Postgres when DATABASE_URL set) ─────────────────────────────────
 
 def db_create_sprint(
     tool_context: ToolContext,
     sprint_name: str,
     team: str,
 ) -> dict[str, Any]:
+    from sprint_mcp import db as sprint_db
+
     sprint_id = f"sprint_{sprint_name[:12].lower().replace(' ', '_')}_001"
     tool_context.state["SPRINT_ID"] = sprint_id
-    _audit(tool_context, f"db_create_sprint({sprint_name!r}, {team!r})")
-    logger.info("db_create_sprint | id=%s", sprint_id)
+    if sprint_db.is_configured():
+        sprint_db.insert_sprint(sprint_id, sprint_name, team)
+        _audit(tool_context, f"db_create_sprint({sprint_name!r}, {team!r}) [postgres]")
+        logger.info("db_create_sprint | id=%s persisted", sprint_id)
+    else:
+        _audit(tool_context, f"db_create_sprint({sprint_name!r}, {team!r}) [memory]")
+        logger.info("db_create_sprint | id=%s (no DATABASE_URL)", sprint_id)
     return {
         "status": "created",
         "sprint_id": sprint_id,
@@ -107,7 +114,7 @@ def mcp_write_note(
     sprint_id: str,
     content: str,
 ) -> dict[str, Any]:
-    """Persist a sprint note to the notes store (in-memory; swapped for DB in Phase 2)."""
+    """Persist a sprint note (Postgres if DATABASE_URL; else in-memory)."""
     from sprint_mcp.notes_store import write_note
     result = write_note(sprint_id, content)
     _audit(tool_context, f"mcp_write_note({sprint_id!r})")

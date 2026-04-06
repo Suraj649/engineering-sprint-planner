@@ -43,6 +43,21 @@ In the UI, choose the **`sprint_planner`** app (not `tools` — that layout no l
 | `SPRINT_WEEK_START` | ISO Monday for calendar hints (default `2026-04-07`) |
 | `LOG_LEVEL` | Logging verbosity |
 
+## Phase 2 — REST API + optional Postgres
+
+```bash
+export PYTHONPATH=.:adk_agents
+./scripts/phase2_run_api.sh
+# or: uvicorn sprint_api.main:app --host 0.0.0.0 --port 8080
+```
+
+- `GET /health` — liveness + whether `DATABASE_URL` is set  
+- `POST /v1/plan` — body `{"message":"..."}` runs the full agent pipeline  
+- `GET /v1/sprints/{sprint_id}/notes` — notes (DB if `DATABASE_URL`, else in-memory)  
+- MCP tools mounted at `/mcp`
+
+Set `DATABASE_URL=postgresql+pg8000://...` for Cloud SQL / AlloyDB (tables created on startup).
+
 ## Wire real integrations
 
 Edit `adk_agents/sprint_planner/mcp_stubs.py` and keep the same function signatures. For Calendar, see `omnexis-repo/omniwork_mcp/google_clients/calendar.py`.

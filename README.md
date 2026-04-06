@@ -1,5 +1,9 @@
 # Engineering Sprint Planner
 
+**Branch:** this repo’s default branch is `feat/sprint_planner` (there is no separate `main`). After `git clone`, run `git checkout feat/sprint_planner && git pull` so you have the latest code.
+
+**Phase 2** (REST API + optional Postgres) lives in: `sprint_api/`, `sprint_mcp/db.py`, `Dockerfile`, `scripts/phase2_run_api.sh`. If those folders are missing locally, your clone is stale — `git pull origin feat/sprint_planner`.
+
 Multi-agent sprint flow adapted from [omnexis-repo](../omnexis-repo): story breakdown → estimation → sprint calendar, plus stubs for Jira/Linear, GitHub, and Google Calendar.
 
 ## ADK layout (important)
@@ -17,6 +21,11 @@ engineering-sprint-planner/
       state_tools.py
       mcp_stubs.py
       ...
+  sprint_api/              ← Phase 2 FastAPI (`main.py`)
+  sprint_mcp/
+    db.py                  ← Phase 2 Postgres (optional DATABASE_URL)
+  Dockerfile
+  scripts/phase2_run_api.sh
 ```
 
 ## Run locally

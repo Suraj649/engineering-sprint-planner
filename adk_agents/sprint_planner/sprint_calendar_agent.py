@@ -12,7 +12,6 @@ from sprint_planner.state_tools import retrieve_scaffolded_tasks, store_schedule
 logger = logging.getLogger(__name__)
 
 _MODEL: str = os.getenv("MODEL", "gemini-2.5-flash")
-_WEEK_START: str = os.getenv("SPRINT_WEEK_START", "2026-04-07")
 
 sprint_calendar_agent = Agent(
     name="sprint_calendar_agent",
@@ -20,11 +19,14 @@ sprint_calendar_agent = Agent(
     description=(
         "Maps estimated sprint stories to concrete calendar slots across the sprint week."
     ),
-    instruction=f"""
+    instruction="""
 You are the Sprint Calendar planner.
 
-Anchor Monday for this sprint week: **{_WEEK_START}** (ISO date).
-Consecutive weekdays: Mon +0, Tue +1, Wed +2, Thu +3, Fri +4, then skip weekend.
+The sprint Monday is stored in session state as SPRINT_WEEK_START (ISO date, e.g. 2026-04-14).
+Read it from the conversation context — it was set by the master agent in Step 1.
+If you cannot find it, use today's coming Monday as the anchor.
+
+Consecutive weekdays from that Monday: Mon +0, Tue +1, Wed +2, Thu +3, Fri +4, then skip weekend.
 
 Steps:
 1. Call `retrieve_scaffolded_tasks` to get `tasks_json`.
@@ -36,13 +38,13 @@ Steps:
    - Reserve **Friday afternoon** for demo-related stories when the brief mentions a demo.
 
 3. Each slot object must match this shape (same field names as omnexis CalendarSlot):
-   {{
+   {
      "task_id"    : "<id from story>",
      "task_title" : "<title>",
      "start"      : "YYYY-MM-DDTHH:MM:00",
      "end"        : "YYYY-MM-DDTHH:MM:00",
      "notes"      : "SP=<points>; est <h>h"
-   }}
+   }
 
 4. Call `store_schedule` with the JSON array string as `schedule_json`.
 
@@ -52,4 +54,4 @@ Steps:
     tools=[retrieve_scaffolded_tasks, store_schedule],
 )
 
-logger.debug("sprint_calendar_agent | model=%s week_start=%s", _MODEL, _WEEK_START)
+logger.debug("sprint_calendar_agent | model=%s (week_start from session state)", _MODEL)

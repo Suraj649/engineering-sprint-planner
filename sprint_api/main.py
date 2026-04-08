@@ -4,7 +4,7 @@ Phase 2 API — Engineering Sprint Planner
 Cloud Shell:
   export PYTHONPATH=.:adk_agents
   source .venv/bin/activate
-  ./scripts/phase2_run_api.sh
+  ./scripts/run_api.sh
   # or: uvicorn sprint_api.main:app --host 0.0.0.0 --port 8080
 
 Endpoints:
@@ -73,7 +73,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )

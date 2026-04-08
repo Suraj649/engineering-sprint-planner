@@ -7,6 +7,7 @@ import os
 
 from google.adk import Agent
 from google.adk.agents import SequentialAgent
+from google.genai import types
 
 from sprint_planner.estimation_agent import estimation_agent
 from sprint_planner.mcp_stubs import (
@@ -30,6 +31,12 @@ logger = logging.getLogger(__name__)
 
 _MODEL: str = os.getenv("MODEL", "gemini-2.5-flash")
 
+_RETRY_CONFIG = types.GenerateContentConfig(
+    http_options=types.HttpOptions(
+        retry_options=types.HttpRetryOptions(initial_delay=5, attempts=5),
+    ),
+)
+
 sprint_pipeline = SequentialAgent(
     name="sprint_pipeline",
     description=(
@@ -42,6 +49,7 @@ sprint_pipeline = SequentialAgent(
 master_agent = Agent(
     name="master_agent",
     model=_MODEL,
+    generate_content_config=_RETRY_CONFIG,
     description=(
         "Orchestrates sprint planning: stories, estimates, calendar, notes, "
         "and pushes to tracker, GitHub, and Calendar."

@@ -6,6 +6,7 @@ import logging
 import os
 
 from google.adk import Agent
+from google.genai import types
 
 from sprint_planner.state_tools import store_sprint_stories
 
@@ -13,9 +14,16 @@ logger = logging.getLogger(__name__)
 
 _MODEL: str = os.getenv("MODEL", "gemini-2.5-flash")
 
+_RETRY_CONFIG = types.GenerateContentConfig(
+    http_options=types.HttpOptions(
+        retry_options=types.HttpRetryOptions(initial_delay=5, attempts=5),
+    ),
+)
+
 story_breakdown_agent = Agent(
     name="story_breakdown_agent",
     model=_MODEL,
+    generate_content_config=_RETRY_CONFIG,
     description=(
         "Parses a sprint brain-dump into discrete engineering stories "
         "(features, bugs, chores, tests, demo prep)."

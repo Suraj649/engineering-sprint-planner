@@ -6,6 +6,7 @@ import logging
 import os
 
 from google.adk import Agent
+from google.genai import types
 
 from sprint_planner.mcp_stubs import mcp_write_note
 from sprint_planner.state_tools import retrieve_scaffolded_tasks, store_sprint_notes
@@ -14,9 +15,16 @@ logger = logging.getLogger(__name__)
 
 _MODEL: str = os.getenv("MODEL", "gemini-2.5-flash")
 
+_RETRY_CONFIG = types.GenerateContentConfig(
+    http_options=types.HttpOptions(
+        retry_options=types.HttpRetryOptions(initial_delay=5, attempts=5),
+    ),
+)
+
 notes_agent = Agent(
     name="notes_agent",
     model=_MODEL,
+    generate_content_config=_RETRY_CONFIG,
     description=(
         "Synthesizes the completed sprint plan into structured notes covering "
         "goals, risks, decisions, and action items, then persists them."

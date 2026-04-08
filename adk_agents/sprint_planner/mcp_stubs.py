@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 from typing import Any
 
 from google.adk.tools.tool_context import ToolContext
@@ -48,9 +49,11 @@ def db_create_sprint(
     sprint_name: str,
     team: str,
 ) -> dict[str, Any]:
-    from sprint_mcp import db as sprint_db
+    # Deferred import: sprint_mcp is on sys.path only when PYTHONPATH=.:adk_agents is set.
+    # Inline import here ensures the module loads cleanly even before PYTHONPATH is configured.
+    from sprint_mcp import db as sprint_db  # noqa: PLC0415
 
-    sprint_id = f"sprint_{sprint_name[:12].lower().replace(' ', '_')}_001"
+    sprint_id = f"sprint_{sprint_name[:12].lower().replace(' ', '_')}_{uuid.uuid4().hex[:6]}"
     tool_context.state["SPRINT_ID"] = sprint_id
     if sprint_db.is_configured():
         sprint_db.insert_sprint(sprint_id, sprint_name, team)
@@ -74,7 +77,8 @@ def mcp_push_tracker(
     stories_json: str,
 ) -> dict[str, Any]:
     """Create one Azure DevOps work item per estimated story."""
-    from sprint_mcp.azure_clients.boards import push_stories
+    from sprint_mcp.azure_clients.boards import push_stories  # noqa: PLC0415
+
     result = push_stories(stories_json)
     _audit(tool_context, f"mcp_push_tracker({result.get('issues_created', 0)} items, status={result.get('status')})")
     return result
@@ -100,7 +104,8 @@ def mcp_block_calendar(
     slots_json: str,
 ) -> dict[str, Any]:
     """[STUB → Google Calendar API] Set GOOGLE_CLIENT_ID + GOOGLE_REFRESH_TOKEN to enable."""
-    from sprint_mcp.mcp_connector import mcp_block_calendar as _mcp_block_calendar
+    from sprint_mcp.mcp_connector import mcp_block_calendar as _mcp_block_calendar  # noqa: PLC0415
+
     result = _mcp_block_calendar(slots_json)
     _audit(tool_context, f"mcp_block_calendar({_parse_count(slots_json)} slots)")
     logger.info("mcp_block_calendar | slots=%d status=%s", _parse_count(slots_json), result.get("status"))
@@ -115,7 +120,8 @@ def mcp_write_note(
     content: str,
 ) -> dict[str, Any]:
     """Persist a sprint note (Postgres if DATABASE_URL; else in-memory)."""
-    from sprint_mcp.notes_store import write_note
+    from sprint_mcp.notes_store import write_note  # noqa: PLC0415
+
     result = write_note(sprint_id, content)
     _audit(tool_context, f"mcp_write_note({sprint_id!r})")
     logger.info("mcp_write_note | sprint=%s", sprint_id)

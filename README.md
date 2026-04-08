@@ -1,8 +1,10 @@
 # Engineering Sprint Planner
 
+> **Python 3.10+ required.** All dependencies (`google-adk`, `mcp`, etc.) require Python ≥ 3.10. The Dockerfile uses Python 3.12.
+
 **Branch:** this repo’s default branch is `feat/sprint_planner` (there is no separate `main`). After `git clone`, run `git checkout feat/sprint_planner && git pull` so you have the latest code.
 
-**Phase 2** (REST API + optional Postgres) lives in: `sprint_api/`, `sprint_mcp/db.py`, `Dockerfile`, `scripts/phase2_run_api.sh`. If those folders are missing locally, your clone is stale — `git pull origin feat/sprint_planner`.
+**Phase 2** (REST API + optional Postgres) lives in: `sprint_api/`, `sprint_mcp/db.py`, `Dockerfile`, `scripts/run_api.sh`. If those folders are missing locally, your clone is stale — `git pull origin feat/sprint_planner`.
 
 Multi-agent sprint flow adapted from [omnexis-repo](../omnexis-repo): story breakdown → estimation → sprint calendar, plus stubs for Jira/Linear, GitHub, and Google Calendar.
 
@@ -25,7 +27,7 @@ engineering-sprint-planner/
   sprint_mcp/
     db.py                  ← Phase 2 Postgres (optional DATABASE_URL)
   Dockerfile
-  scripts/phase2_run_api.sh
+  scripts/run_api.sh
 ```
 
 ## Run locally
@@ -35,7 +37,8 @@ cd engineering-sprint-planner
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
-adk web adk_agents
+# PYTHONPATH must include the project root so sprint_mcp is importable from agent tools
+PYTHONPATH=. adk web adk_agents
 ```
 
 In the UI, choose the **`sprint_planner`** app (not `tools` — that layout no longer exists).
@@ -46,24 +49,30 @@ In the UI, choose the **`sprint_planner`** app (not `tools` — that layout no l
 
 ## Environment
 
-| Variable | Purpose |
-|----------|---------|
-| `MODEL` | Gemini model id (default `gemini-2.5-flash`) |
-| `SPRINT_WEEK_START` | ISO Monday for calendar hints (default `2026-04-07`) |
-| `LOG_LEVEL` | Logging verbosity |
+| Variable | Required | Purpose |
+|----------|----------|---------|
+| `GOOGLE_API_KEY` or `GEMINI_API_KEY` | **Yes** | Gemini API key (get from [aistudio.google.com](https://aistudio.google.com)) |
+| `MODEL` | No | Gemini model id (default `gemini-2.5-flash`) |
+| `SPRINT_WEEK_START` | No | ISO Monday for calendar hints (default `2026-04-07`) |
+| `LOG_LEVEL` | No | Logging verbosity (`debug`/`info`/`warning`) |
+| `AZURE_DEVOPS_PAT` | No | Personal Access Token — enables real Azure DevOps push (stub otherwise) |
+| `AZURE_DEVOPS_ORG` | No | Azure DevOps organisation slug |
+| `AZURE_DEVOPS_PROJECT` | No | Azure DevOps project name |
+| `DATABASE_URL` | No | Postgres connection string — enables plan persistence |
 
 ## Phase 2 — REST API + optional Postgres
 
 ```bash
 export PYTHONPATH=.:adk_agents
-./scripts/phase2_run_api.sh
+./scripts/run_api.sh
 # or: uvicorn sprint_api.main:app --host 0.0.0.0 --port 8080
 ```
 
-- `GET /health` — liveness + whether `DATABASE_URL` is set  
-- `POST /v1/plan` — body `{"message":"..."}` runs the full agent pipeline  
-- `GET /v1/sprints/{sprint_id}/notes` — notes (DB if `DATABASE_URL`, else in-memory)  
-- MCP tools mounted at `/mcp`
+- `GET /health` — liveness + active database backend  
+- `POST /v1/plan` — body `{"message":"...","user_id":"..."}` — runs the full agent pipeline; returns `text`, `session_id`, `sprint_id`, `persisted`  
+- `GET /v1/history/{session_id}` — retrieve a saved plan by session ID (requires `DATABASE_URL`)  
+- `GET /v1/sprints/{sprint_id}/notes` — sprint notes (DB if `DATABASE_URL`, else in-memory)  
+- MCP tools mounted at `/mcp` (streamable HTTP)
 
 **Database (choose one):**
 

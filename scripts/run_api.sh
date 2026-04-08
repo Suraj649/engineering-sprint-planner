@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Google Cloud Shell: from repo root
-#   chmod +x scripts/phase2_run_api.sh
-#   ./scripts/phase2_run_api.sh
+#   chmod +x scripts/run_api.sh
+#   ./scripts/run_api.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
 export PYTHONPATH=.:adk_agents
